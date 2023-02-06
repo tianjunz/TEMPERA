@@ -315,15 +315,6 @@ class LMForwardEnvNoPrefix(gym.Env):
     # Prefix editing
     parser = Parser.load('crf-con-en')
     prefix_candidate = detokenize(word_tokenize("The task is to do sentiment analysis"))
-    print(get_phrase_lookup(prefix_candidate, parser), flush=True)
-    '''
-    self.prefix_candidate = detokenize(word_tokenize(params['prompt_prefix']))
-    self.parser = Parser.load('crf-con-en')
-    self.phrase_lookup = get_phrase_lookup(self.prefix_candidate, self.parser)
-    self.phrase_length = len(self.phrase_lookup)
-    self.phrase_total_length = int(self.phrase_length*(self.phrase_length-1)/2)
-    self.prefix_phrase_total_length = self.phrase_total_length + int(params['num_shots']*(params['num_shots']-1)/2)+1+2
-    '''
     self.prompt_swap_length = int(params['num_shots']*(params['num_shots']-1)/2) + 1 + params['num_shots']
     self.prefix_phrase_total_length = self.prompt_swap_length + params['num_shots'] * (params['example_pool_size'] - params['num_shots'])
 
@@ -345,13 +336,6 @@ class LMForwardEnvNoPrefix(gym.Env):
     for i in range(params['num_shots']):
         self.swap_idxs1.append(i)
         self.swap_idxs2.append(i)
-    # 2 for adding and deleting
-    '''
-    self.swap_idxs1.append(-1)
-    self.swap_idxs2.append(-1)
-    self.swap_idxs1.append(-2)
-    self.swap_idxs2.append(-2)
-    '''
 
     # swap current prompt with pool
     for i in range(params['num_shots']):
@@ -359,18 +343,6 @@ class LMForwardEnvNoPrefix(gym.Env):
             self.swap_idxs1.append(i)
             self.swap_idxs2.append(j)
     
-    # Prefix indexs
-    '''
-    self.swap_prefix_idxs1 = []
-    self.swap_prefix_idxs2 = []
-    self.swap_prefix_idxs1.append(0)
-    self.swap_prefix_idxs2.append(0)
-    for i in range(self.phrase_length):
-        for j in range(i+1, self.phrase_length):
-            self.swap_prefix_idxs1.append(i)
-            self.swap_prefix_idxs2.append(j)
-    '''
-
     # 3 Verbalizer Dataset formating
     from promptsource.templates import DatasetTemplates
     if params['dataset'] == 'customer_review':
@@ -378,38 +350,21 @@ class LMForwardEnvNoPrefix(gym.Env):
     else:
         self.prompt_templates = DatasetTemplates(params['dataset'])
     self.prompt_template_keys = self.prompt_templates.all_template_names
-    print(len(self.prompt_template_keys))
     for key in self.prompt_template_keys:
         answer_lists = self.prompt_templates[key].answer_choices.split("|||")
         for promt_answer, correct_answer in zip(answer_lists, self.params['inv_label_dict'].keys()):
-            # print(self.prompt_templates[key].jinja, promt_answer, correct_answer)
             self.prompt_templates[key].jinja = self.prompt_templates[key].jinja.replace(promt_answer.strip(), correct_answer)
-            # print(self.prompt_templates[key].jinja)
     self.current_verbalizer = []
     self.deleted_verbalizer = []
     self.subset_verbalizer = []
     self.prefix_phrase_verbalizer_total_length = self.prefix_phrase_total_length + len(self.prompt_template_keys)*params['num_shots']
-    # self.prefix_phrase_verbalizer_total_length = self.prefix_phrase_total_length
-
-
-    # from datasets import load_dataset
-    # dataset = load_dataset('super_glue', 'rte', split='train')
-    # dataset = load_dataset('trec', split='train')
-    '''
-    print(dataset[0])
-    print(self.prompt_templates[self.prompt_template_keys[0]].apply(dataset[0]))
-    exit()
-    '''
-
+    
     print('action space: ', self.prefix_phrase_verbalizer_total_length)
     if self.verbalizer:
-        # self.action_space = spaces.Discrete(self.prefix_phrase_verbalizer_total_length + len(self.prompt_template_keys))
         self.action_space = spaces.Discrete(self.prefix_phrase_verbalizer_total_length)
     else:
         self.action_space = spaces.Discrete(self.prefix_phrase_total_length)
-    # self.observation_space = spaces.Box(-np.inf, np.inf, (obs_size * 2 + self.max_steps + 1,))
     self.observation_space = spaces.Box(-np.inf, np.inf, (obs_size * (params['example_pool_size'] + 1 - params['num_shots'] + params['num_shots'] * len(self.prompt_template_keys)) + 3,))
-    # self.observation_space = spaces.Box(-np.inf, np.inf, (obs_size * (params['example_pool_size'] + 1 + params['example_pool_size'] * len(self.prompt_template_keys)),))
     self.embedding_prepared = torch.tensor(np.array([False])).share_memory_()
     self.current_prompt_embedding_pool = torch.zeros((len(self.train_sentences), params['num_shots'], obs_size)).share_memory_()
     self.add_current_prompt_embedding_pool = torch.zeros((len(self.train_sentences), params['example_pool_size'] - params['num_shots'], obs_size)).share_memory_()
@@ -449,14 +404,12 @@ class LMForwardEnvNoPrefix(gym.Env):
     print(len(self._add_current_verbalizer_embedding_pool), np.array(self._add_current_verbalizer_embedding_pool[0]).shape)
     print('Finish Preparing Embedding', flush=True)
     self.embedding_prepared[:] = torch.tensor(np.array([True]))
-    # print(len(self.add_current_verbalizer_embedding), len(self.add_current_verbalizer_embedding[0]), len(self.add_current_verbalizer_embedding[0][0]))
 
   def load_ckpt(self, file_path, i, num_test):
     _current_prompt_embedding_pool = torch.load(file_path+'current_prompt_embedding_pool.pth')
     _add_current_prompt_embedding_pool = torch.load(file_path+'add_current_prompt_embedding_pool.pth')
     _current_verbalizer_embedding_pool = torch.load(file_path+'current_verbalizer_embedding_pool.pth')
     _add_current_verbalizer_embedding_pool = torch.load(file_path+'add_current_verbalizer_embedding_pool.pth')
-    print(_current_prompt_embedding_pool.shape, self.current_prompt_embedding_pool.shape)
     self.current_prompt_embedding_pool[:] = _current_prompt_embedding_pool[i*num_test:(i+1)*num_test]
     self.add_current_prompt_embedding_pool[:] = _add_current_prompt_embedding_pool[i*num_test:(i+1)*num_test]
     self.current_verbalizer_embedding_pool[:] = _current_verbalizer_embedding_pool[i*num_test:(i+1)*num_test]
@@ -465,22 +418,13 @@ class LMForwardEnvNoPrefix(gym.Env):
     self.embedding_prepared[:] = torch.tensor(np.array([True]))
 
   def get_obs(self, obs, actions):
-      # return obs
-      # all_obs = np.concatenate([obs, np.array(self.current_prompt_embedding).reshape(obs.shape[0], -1)], axis=-1)
       all_obs = obs
       all_obs = np.concatenate([all_obs, np.array(self.add_current_prompt_embedding).reshape(all_obs.shape[0], -1)], axis=-1)
-      # TODO: changes here
       all_obs = np.concatenate([all_obs, np.array(self.current_verbalizer_embedding).reshape(all_obs.shape[0], -1)], axis=-1)
-      # all_obs = np.concatenate([all_obs, np.array(self.add_current_verbalizer_embedding).reshape(all_obs.shape[0], -1)], axis=-1)
       all_obs = np.concatenate([all_obs, np.expand_dims(np.array(self.terminate).astype(float)*0+self.steps, -1)], axis=-1)
       all_obs = np.concatenate([all_obs, np.expand_dims(np.array(self.terminate).astype(float), -1)], axis=-1)
       all_obs = np.concatenate([all_obs, np.array(actions).reshape(all_obs.shape[0], -1)], axis=-1)
       return all_obs
-      if actions is not None:
-          for action, act_history in zip(actions, self.act_histories):
-              act_history[self.steps] = action
-      new_obs = np.concatenate([obs, self.act_histories], axis=-1)
-      return new_obs
 
   def verbalize(self, current_sentences, current_verbalizer, subset=False):
     if subset: 
@@ -495,26 +439,13 @@ class LMForwardEnvNoPrefix(gym.Env):
             return_sentences.append([])
             for i, sentence in enumerate(sentences):
                 prompt = self.prompt_templates[self.prompt_template_keys[verbalizer[i]]]
-                # print(sentence)
-                # data = {'sentence': sentence, 'text': sentence, 'label': label, 'label-coarse': label, 'label-fine': label}
-                # print('new ', prompt.apply(sentence)[0])
-                # exit()
                 return_sentences[-1].append(prompt.apply(sentence)[0])
         return return_sentences
 
   def step(self, action):
     # Execute one time step within the environment
-    # print(action.shape)
     action = action.squeeze(-1)
-    # swap_idx1 = [self.swap_idxs1[act] for act in action]
-    # swap_idx2 = [self.swap_idxs2[act] for act in action]
-    # print(self.current_prompt)
     idx = 0 
-    # import time
-    # time_t1 = time.time()
-    # print('bef ', [np.mean(embedding) for embedding in self.current_prompt_embedding[0]])
-    # print('bef ', self.current_prompt_labels[0])
-    # print('bef ', self.current_prompt_index[0], self.current_verbalizer[0])
     for terminate, act, sentence_index, sentence, label, embedding, ver_embedding, add_sentence_index, add_sentence, add_label, add_embedding, add_ver_embedding, delete_sentence, delete_label, delete_embedding, delete_ver_embedding, verbalizer, add_verbalizer, delete_verbalizer, subset_verbalizer in \
         zip(self.terminate, action.tolist(), self.current_prompt_index, self.current_prompt, self.current_prompt_labels, self.current_prompt_embedding, self.current_verbalizer_embedding, self.add_current_prompt_index, self.add_current_prompt, self.add_current_prompt_labels, \
             self.add_current_prompt_embedding, self.add_current_verbalizer_embedding, self.deleted_prompt, self.deleted_prompt_labels, self.deleted_prompt_embedding, self.deleted_verbalizer_embedding, self.current_verbalizer, self.add_current_verbalizer, self.deleted_verbalizer, self.subset_verbalizer):
@@ -524,23 +455,6 @@ class LMForwardEnvNoPrefix(gym.Env):
                 #TODO: maybe we need to swap verbalizer as we swap example
                 idx1 = self.swap_idxs1[act]
                 idx2 = self.swap_idxs2[act]
-                '''
-                if idx1 == -1 and idx2 == -1 and len(sentence) > 0 and len(label) > 0:
-                    delete_sentence.append(copy.deepcopy(sentence[0]))
-                    delete_label.append(copy.deepcopy(label[0]))
-                    delete_verbalizer.append(copy.deepcopy(verbalizer[0]))
-                    sentence.pop(0)
-                    label.pop(0)
-                    verbalizer.pop(0)
-                elif idx1 == -2 and idx2 == -2 and len(delete_sentence) > 0 and len(delete_label) > 0:
-                    sentence.append(copy.deepcopy(delete_sentence[0]))
-                    label.append(copy.deepcopy(delete_label[0]))
-                    verbalizer.append(copy.deepcopy(delete_verbalizer[0]))
-                    delete_sentence.pop(0)
-                    delete_label.pop(0)
-                    delete_verbalizer.pop(0)
-                elif idx1 >= 0 and idx2 >= 0 and act < self.prompt_swap_length:
-                '''
                 if idx1 == idx2:
                     self.terminate[idx] = True
                 if idx1 >= 0 and idx2 >= 0 and act < self.prompt_swap_length:
@@ -560,7 +474,6 @@ class LMForwardEnvNoPrefix(gym.Env):
                         label[idx1], add_label[idx2] = copy.deepcopy(add_label[idx2]), copy.deepcopy(label[idx1])
                         embedding[idx1], add_embedding[idx2] = copy.deepcopy(add_embedding[idx2]), copy.deepcopy(embedding[idx1])
                         ver_embedding[idx1], add_ver_embedding[idx2] = copy.deepcopy(add_ver_embedding[idx2]), copy.deepcopy(ver_embedding[idx1])
-                        # verbalizer[idx1], add_verbalizer[idx2] = copy.deepcopy(add_verbalizer[idx2]), copy.deepcopy(verbalizer[idx1])
                         sentence_index[idx1], add_sentence_index[idx2] = copy.deepcopy(add_sentence_index[idx2]), copy.deepcopy(sentence_index[idx1])
                     else:
                         print('case 2', idx1, idx2, len(sentence), len(add_sentence))
@@ -576,20 +489,8 @@ class LMForwardEnvNoPrefix(gym.Env):
                     embedding[verbalize_idx] = copy.deepcopy(np.array(ver_embedding)[verbalize_idx, int(act / self.params['num_shots'])])
                 else:
                     assert False
-            '''
-            elif self.verbalizer:
-                act = act - self.prefix_phrase_verbalizer_total_length
-                if act < len(self.prompt_template_keys):
-                    subset_verbalizer = act
-                else:
-                    assert False
-            '''
-
+            
         idx += 1
-    # print('aft ', [np.mean(embedding) for embedding in self.current_prompt_embedding[0]])
-    # print('aft ', self.current_prompt_labels[0])
-    # print('aft ', self.current_verbalizer[0])
-    # print('aft ', self.current_prompt_index[0], self.current_verbalizer[0])
 
     if self.verbalizer:
         verbalized_prompt = self.verbalize(self.current_prompt, self.current_verbalizer)
@@ -599,18 +500,11 @@ class LMForwardEnvNoPrefix(gym.Env):
         verbalized_prompt = self.current_prompt
         verbalized_pool = self.add_prompt_sentence_pool
         subset_sentences = self.subset_sentences
-    # time1 = time.time()
     raw_resp, obs = get_model_response_parallel(self.params, self.model, self.tokenizer, verbalized_prompt, self.current_prompt_labels, subset_sentences)
-    # time2 = time.time()
-    # print('model ', time2 - time1)
-    # _, add_obs = get_model_response_parallel(self.params, verbalized_pool, self.add_current_prompt_labels, subset_sentences)
-    # obs = np.concatenate([obs, add_obs], axis=-1)
     all_label_probs = get_label_probs(self.params, raw_resp, verbalized_prompt, self.current_prompt_labels, subset_sentences)
 
     assert len(all_label_probs) == len(self.subset_labels)
-    # label_probs = all_label_probs / (np.sum(all_label_probs, axis=-1, keepdims=True) + (np.sum(all_label_probs, axis=-1, keepdims=True) == 0))
     label_probs = all_label_probs / np.sum(all_label_probs, axis=-1, keepdims=True)
-    # time1 = time.time()
     
     self.steps += 1
     if self.loss_type == 'ce':
@@ -636,30 +530,14 @@ class LMForwardEnvNoPrefix(gym.Env):
         correct = (gap > 0).long()
         step_reward = gap * (self.correct_bonus * correct + self.incorrect_bonus * (1 - correct))
         step_reward = step_reward.numpy()
-        '''
-        # print(correct_probs.shape, label_probs.shape, flush=True)
-        prob_diff = np.expand_dims(correct_probs, axis=-1) - label_probs
-        prob_diff = prob_diff + (prob_diff == 0).astype(float) * 1e6
-        step_reward = np.min(prob_diff, axis=-1)
-        step_reward = step_reward * correct * self.correct_bonus + (1 - correct) * step_reward * self.incorrect_bonus
-        # equal = (np.sum(prob_diff**2, axis=-1) == 0).astype(float)
-        # step_reward = step_reward * (1 - equal)
-        '''
         reward = step_reward - self.previous_loss
         self.previous_loss = copy.deepcopy(step_reward)
-        # assert np.mean(reward) < 10
     elif self.loss_type == 'acc':
         predicts = np.argmax(label_probs, axis=-1)
         entropy = -np.sum(label_probs*np.log(label_probs+1e-6), axis=-1)
-        # if not self.evaluate:
-        #     print(entropy, (predicts == np.array(self.subset_labels)))
         correct = (predicts == np.array(self.subset_labels)).astype(float) * 2 - 1 + self.entropy_coef * entropy
         reward = correct - self.previous_loss
         self.previous_loss = copy.deepcopy(correct)
-        # print(reward, correct, prob_diff, flush=True)
-        # predict_probs = label_probs[np.arange(all_label_probs.shape[0]), predicts]
-        # reward = predict_probs - correct_probs
-        # reward = correct * self.correct_bonus + (1 - correct) * reward * self.incorrect_bonus
     if self.loss_type == 'ce_sparse':
         onehot = np.zeros((all_label_probs.shape))
         onehot[np.arange(all_label_probs.shape[0]), np.array(self.subset_labels)] = 1
@@ -703,8 +581,6 @@ class LMForwardEnvNoPrefix(gym.Env):
 
     # Reward Scaling
     reward = reward * self.rew_scale
-    # time2 = time.time()
-    # print('reward ', time2 - time1)
     if self.steps >= self.max_steps:
         done = np.ones(self.subset_size)
         if self.evaluate:
@@ -716,18 +592,11 @@ class LMForwardEnvNoPrefix(gym.Env):
     else:
         done = np.zeros(self.subset_size)
         info = {'episode_r': reward,  'step_r': step_reward * self.rew_scale}
-    # print(action)
-    # if self.evaluate:
-    #     print('step: ', self.steps, ' current prompts: ', self.current_prompt_index)
-    # done = np.array(self.terminate)
-    # time_t2 = time.time()
-    # print('total ', time_t2 - time_t1)
     return_obs = self.get_obs(obs, self.prev_actions)
     self.prev_actions = copy.deepcopy(np.array(action))
     return return_obs, reward, done, info
 
   def embedding(self, prompts, labels, verbalizer, sentences, sentences_verbalizer):
-    # print('embedding')
     verbalized_prompt = self.verbalize(prompts, verbalizer)
     verbalized_sentences = self.verbalize(sentences, sentences_verbalizer, subset=True)
     all_embeddings = []
@@ -743,58 +612,6 @@ class LMForwardEnvNoPrefix(gym.Env):
             _return_embeddings.append(all_embeddings[prompt_idx][sentence_idx])
         return_embeddings.append(_return_embeddings)
     return return_embeddings
-    # all_embeddings = []
-    # for _prompts, _labels, sentence in zip(verbalized_prompt, labels, verbalized_sentences):
-    #     _all_embeddings = []
-    #     for prompt, label in zip(_prompts, _labels):
-    #         _, obs = get_model_response_parallel(self.params, [[prompt]], [[label]], [sentence])
-    #         _all_embeddings.append(copy.deepcopy(obs))
-    #     all_embeddings.append(_all_embeddings)
-    # return all_embeddings
-
-#   def knn(self, prompt_size, sentences, sentences_verbalizer, all_sentences, all_sentences_verbalizer, all_labels):
-#     verbalized_all_sentences = self.verbalize(all_sentences, all_sentences_verbalizer, subset=True)
-#     verbalized_sentences = self.verbalize(sentences, sentences_verbalizer, subset=True)
-#     embeddings = []
-#     for sentence in verbalized_sentences:
-#         _, obs = get_model_response_parallel(self.params, self.model, self.tokenizer, [[""]], [[""]], [sentence])
-#         embeddings.append(copy.deepcopy(obs))
-#     embeddings = np.array(embeddings)
-#     all_embeddings = []
-#     for all_sentence in verbalized_all_sentences:
-#         _, obs = get_model_response_parallel(self.params, self.model, self.tokenizer, [[""]], [[""]], [all_sentence])
-#         all_embeddings.append(copy.deepcopy(obs))
-#     all_embeddings = np.expand_dims(np.array(all_embeddings).squeeze(), axis=0)
-
-#     # distance = np.sum((embeddings - all_embeddings)**2, axis=-1)
-#     norm_embeddings = embeddings / np.sqrt(np.sum(embeddings**2, axis=-1, keepdims=True))
-#     norm_all_embeddings = all_embeddings / np.sqrt(np.sum(all_embeddings**2, axis=-1, keepdims=True))
-#     distance = np.sum(norm_embeddings * norm_all_embeddings, axis=-1)
-
-#     # ind = np.argpartition(distance, -self.params['example_pool_size'], axis=-1)[:, :self.params['example_pool_size']]
-#     ind = []
-#     for row in range(distance.shape[0]):
-#         ind.append(np.argsort(distance[row])[:self.params['example_pool_size']])
-#     ind = np.array(ind)
-    
-#     knn_sentence_pool = []
-#     knn_label_pool = []
-#     add_knn_sentence_pool = []
-#     add_knn_label_pool = []
-#     for _ind in ind:
-#         knn_sentence_pool.append([])
-#         knn_label_pool.append([])
-#         add_knn_sentence_pool.append([])
-#         add_knn_label_pool.append([])
-#         for __ind in _ind[:self.params['num_shots']]:
-#             knn_sentence_pool[-1].append(all_sentences[__ind])
-#             knn_label_pool[-1].append(all_labels[__ind])
-#         for __ind in _ind[self.params['num_shots']:]:
-#             add_knn_sentence_pool[-1].append(all_sentences[__ind])
-#             add_knn_label_pool[-1].append(all_labels[__ind])
-    
-#     # print(len(knn_sentence_pool[0]), len(knn_label_pool[0]), len(add_knn_sentence_pool[0]))
-#     return knn_sentence_pool, knn_label_pool, add_knn_sentence_pool, add_knn_label_pool
 
   def reset(self, idx=None, terminate=None):
     self.steps = 0
@@ -803,13 +620,11 @@ class LMForwardEnvNoPrefix(gym.Env):
         subset_idxs = self.idxs
     else:
         self.subset_size = self.num_processes
-        # subset_idxs = np.random.permutation(len(self.train_sentences))[:self.subset_size]
         subset_idxs = np.random.choice(np.arange(len(self.train_sentences)), self.subset_size, replace=True)
     self.subset_idxs = subset_idxs
     self.terminate = [False for _ in range(self.subset_size)]
     self.prev_actions = np.array([0 for _ in range(self.subset_size)])
     self.subset_sentences = [copy.deepcopy(self.train_sentences[i]) for i in subset_idxs]
-    # self.subset_sentences = self.train_sentences.select(subset_idxs)
     self.subset_labels = [copy.deepcopy(self.train_labels[i]) for i in subset_idxs]
     # Reset the verbalizer
     self.current_verbalizer = [[0 for _ in range(self.params['num_shots'])] for _ in range(len(self.subset_sentences))]
@@ -819,51 +634,22 @@ class LMForwardEnvNoPrefix(gym.Env):
     self.all_verbalizer = [0 for _ in range(len(self.all_prompt_sentence_pool))]
     
     # KNN select 
-    if self.params['use_knn']:
-        # print(self.prompt_sentence_pool, '\n')
-        self.prompt_sentence_pool, self.prompt_label_pool, self.add_prompt_sentence_pool, self.add_prompt_label_pool = \
-            self.knn(self.params['num_shots'], self.subset_sentences, self.subset_verbalizer, self.all_prompt_sentence_pool, self.all_verbalizer, self.all_prompt_label_pool)
-        # First sample a batch of sentences
-        self.current_prompt = copy.deepcopy(self.prompt_sentence_pool)
-        self.current_prompt_labels = copy.deepcopy(self.prompt_label_pool)
-        self.current_prompt_index = [np.arange(len(self.prompt_sentence_pool[0])) for _ in range(len(self.subset_sentences))]
-        self.add_current_prompt = copy.deepcopy(self.add_prompt_sentence_pool)
-        self.add_current_prompt_labels = copy.deepcopy(self.add_prompt_label_pool)
-        self.add_current_prompt_index = [np.arange(len(self.add_prompt_sentence_pool[0]))+len(self.prompt_sentence_pool[0]) for _ in range(len(self.subset_sentences))]
-        self.deleted_prompt = [[] for _ in range(len(self.subset_sentences))]
-        self.deleted_prompt_labels = [[] for _ in range(len(self.subset_sentences))]
-    else:
-        # First sample a batch of sentences
-        self.current_prompt = [copy.deepcopy(self.prompt_sentence_pool) for _ in range(len(self.subset_sentences))]
-        self.current_prompt_labels = [copy.deepcopy(self.prompt_label_pool) for _ in range(len(self.subset_sentences))]
-        self.current_prompt_index = [np.arange(len(self.prompt_sentence_pool)) for _ in range(len(self.subset_sentences))]
-        self.add_current_prompt = [copy.deepcopy(self.add_prompt_sentence_pool) for _ in range(len(self.subset_sentences))]
-        self.add_current_prompt_labels = [copy.deepcopy(self.add_prompt_label_pool) for _ in range(len(self.subset_sentences))]
-        self.add_current_prompt_index = [np.arange(len(self.add_prompt_sentence_pool))+len(self.prompt_sentence_pool) for _ in range(len(self.subset_sentences))]
-        self.deleted_prompt = [[] for _ in range(len(self.subset_sentences))]
-        self.deleted_prompt_labels = [[] for _ in range(len(self.subset_sentences))]
+    # First sample a batch of sentences
+    self.current_prompt = [copy.deepcopy(self.prompt_sentence_pool) for _ in range(len(self.subset_sentences))]
+    self.current_prompt_labels = [copy.deepcopy(self.prompt_label_pool) for _ in range(len(self.subset_sentences))]
+    self.current_prompt_index = [np.arange(len(self.prompt_sentence_pool)) for _ in range(len(self.subset_sentences))]
+    self.add_current_prompt = [copy.deepcopy(self.add_prompt_sentence_pool) for _ in range(len(self.subset_sentences))]
+    self.add_current_prompt_labels = [copy.deepcopy(self.add_prompt_label_pool) for _ in range(len(self.subset_sentences))]
+    self.add_current_prompt_index = [np.arange(len(self.add_prompt_sentence_pool))+len(self.prompt_sentence_pool) for _ in range(len(self.subset_sentences))]
+    self.deleted_prompt = [[] for _ in range(len(self.subset_sentences))]
+    self.deleted_prompt_labels = [[] for _ in range(len(self.subset_sentences))]
     
-    # Action history
-    # self.act_histories = [[0 for _ in range(self.max_steps + 1)] for _ in range(len(self.subset_sentences))]
-    # Prepare embeddings
-    # self.current_prompt_embedding = self.embedding(self.current_prompt, self.current_prompt_labels, self.current_verbalizer, self.subset_sentences, self.subset_verbalizer)
-    # self.add_current_prompt_embedding = self.embedding(self.add_current_prompt, self.add_current_prompt_labels, self.add_current_verbalizer, self.subset_sentences, self.subset_verbalizer)
     self.current_prompt_embedding = [copy.deepcopy(self.current_prompt_embedding_pool[i].numpy()) for i in subset_idxs]
     self.add_current_prompt_embedding = [copy.deepcopy(self.add_current_prompt_embedding_pool[i].numpy()) for i in subset_idxs]
     self.deleted_prompt_embedding = [[] for _ in range(len(self.subset_sentences))]
-    # self.current_verbalizer_embedding = []
-    # for verbalizer in range(len(self.prompt_template_keys)):
-    #     self.current_verbalizer_embedding.append(self.embedding(self.current_prompt, self.current_prompt_labels, (np.array(self.current_verbalizer)+verbalizer).tolist(), self.subset_sentences, self.subset_verbalizer))
-    # self.current_verbalizer_embedding = np.transpose(np.array(self.current_verbalizer_embedding), axes=(1, 2, 0, 3)).tolist()
-    # self.add_current_verbalizer_embedding = []
-    # for verbalizer in range(len(self.prompt_template_keys)):
-    #     self.add_current_verbalizer_embedding.append(self.embedding(self.add_current_prompt, self.add_current_prompt_labels, (np.array(self.add_current_verbalizer)+verbalizer).tolist(), self.subset_sentences, self.subset_verbalizer))
-    # self.add_current_verbalizer_embedding = np.transpose(np.array(self.add_current_verbalizer_embedding), axes=(1, 2, 0, 3)).tolist()
     self.current_verbalizer_embedding = [copy.deepcopy(self.current_verbalizer_embedding_pool[i].numpy()) for i in subset_idxs]
     self.add_current_verbalizer_embedding = [copy.deepcopy(self.add_current_verbalizer_embedding_pool[i].numpy()) for i in subset_idxs]
-    # print(len(self.add_current_verbalizer_embedding), len(self.add_current_verbalizer_embedding[0]), len(self.add_current_verbalizer_embedding[0][0]))
     self.deleted_verbalizer_embedding = [[] for _ in range(len(self.subset_sentences))]
-    # print(np.array(self.current_verbalizer_embedding).shape, np.array(self.add_current_verbalizer_embedding).shape)
 
     #TODO: changes here
     if not self.evaluate and self.params['random_init'] > 0:
@@ -900,16 +686,12 @@ class LMForwardEnvNoPrefix(gym.Env):
         verbalized_pool = self.add_prompt_sentence_pool
         subset_sentences = self.subset_sentences
     raw_resp, obs = get_model_response_parallel(self.params, self.model, self.tokenizer, verbalized_prompt, self.current_prompt_labels, subset_sentences)
-    # _, add_obs = get_model_response_parallel(self.params, verbalized_pool, self.add_current_prompt_labels, subset_sentences)
-    # obs = np.concatenate([obs, add_obs], axis=-1)
     all_label_probs = get_label_probs(self.params, raw_resp, verbalized_prompt, self.current_prompt_labels, subset_sentences)
-    # print('reset ', self.idxs, ' ', all_label_probs)
 
     if self.evaluate:
         self.orig_correct, self.orig_total, _, _, _ = eval_accuracy(all_label_probs, self.subset_labels)
 
     assert len(all_label_probs) == len(self.subset_labels)
-    # label_probs = all_label_probs / (np.sum(all_label_probs, axis=-1, keepdims=True) + (np.sum(all_label_probs, axis=-1, keepdims=True) == 0))
     label_probs = all_label_probs / np.sum(all_label_probs, axis=-1, keepdims=True)
     if self.loss_type == 'ce':
         onehot = np.zeros((all_label_probs.shape))
@@ -933,23 +715,10 @@ class LMForwardEnvNoPrefix(gym.Env):
         correct = (gap > 0).long()
         step_reward = gap * (self.correct_bonus * correct + self.incorrect_bonus * (1 - correct))
         step_reward = step_reward.numpy()
-        '''
-        # print(correct_probs.shape, label_probs.shape, flush=True)
-        prob_diff = np.expand_dims(correct_probs, axis=-1) - label_probs
-        prob_diff = prob_diff + (prob_diff == 0).astype(float) * 1e6
-        step_reward = np.min(prob_diff, axis=-1)
-        step_reward = correct * step_reward * self.correct_bonus + (1 - correct) * step_reward * self.incorrect_bonus
-        '''
         self.previous_loss = copy.deepcopy(step_reward)
-        # print(reward, correct, prob_diff, flush=True)
-        # predict_probs = label_probs[np.arange(all_label_probs.shape[0]), predicts]
-        # reward = predict_probs - correct_probs
-        # reward = correct * self.correct_bonus + (1 - correct) * reward * self.incorrect_bonus
     elif self.loss_type == 'acc':
         predicts = np.argmax(label_probs, axis=-1)
         entropy = -np.sum(label_probs*np.log(label_probs+1e-6), axis=-1)
-        # if not self.evaluate:
-        #     print(entropy, (predicts == np.array(self.subset_labels)))
         correct = (predicts == np.array(self.subset_labels)).astype(float) * 2 - 1 + self.entropy_coef * entropy
         self.previous_loss = copy.deepcopy(correct)
     elif self.loss_type == 'step_sparse':
@@ -969,10 +738,6 @@ class LMForwardEnvNoPrefix(gym.Env):
         step_reward = gap * (self.correct_bonus * correct + self.incorrect_bonus * (1 - correct))
         step_reward = step_reward.numpy()
         self.previous_loss = copy.deepcopy(step_reward)
-        # print(reward, correct, prob_diff, flush=True)
-        # predict_probs = label_probs[np.arange(all_label_probs.shape[0]), predicts]
-        # reward = predict_probs - correct_probs
-        # reward = correct * self.correct_bonus + (1 - correct) * reward * self.incorrect_bonus
 
     return self.get_obs(obs, self.prev_actions)
 
