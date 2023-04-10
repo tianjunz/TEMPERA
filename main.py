@@ -124,7 +124,6 @@ def main():
     params['num_actors'] = args.num_actors
     params['entropy_coef'] = args.env_entropy_coef
     params['random_init'] = args.random_init
-    params['auto_policy'] = args.auto_policy
     if args.models == 'gpt2-xl':
         obs_size = 1600
     elif args.models == 'gpt2-large':

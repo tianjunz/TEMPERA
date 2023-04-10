@@ -12,7 +12,7 @@ nltk.download('punkt', quiet=True)
 from nltk.tokenize import word_tokenize, sent_tokenize
 from supar import Parser
 from nltk.tokenize.treebank import TreebankWordDetokenizer
-from utils import setup_roberta, setup_gpt2, setup_t5
+from utils import setup_roberta
 
 # Editing the instruction
 def delete_phrase(candidate, phrase):
@@ -302,12 +302,8 @@ class LMForwardEnvNoPrefix(gym.Env):
     self.correct_bonus = 2.0
     self.incorrect_bonus = 1.8
     self.terminate = []
-    if 'gpt2' in params['model']:
-        self.model, self.tokenizer = setup_gpt2(params['model'], gpu_id)
-    elif 'roberta' in params['model']:
+    if 'roberta' in params['model']:
         self.model, self.tokenizer = setup_roberta(params['model'], gpu_id)
-    elif 't5' in params['model']:
-        self.model, self.tokenizer = setup_t5(params['model'], gpu_id)
     else:
         assert False
 
